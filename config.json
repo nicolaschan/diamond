@@ -1,0 +1,12 @@
+{
+  "port": 8081,
+  "tax": {
+    "rate": 0.05,
+    "username": "tax",
+    "password": "pass"
+  },
+  "admin": {
+    "username": "admin",
+    "password": "pass"
+  }
+}
