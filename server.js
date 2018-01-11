@@ -6,6 +6,7 @@ const bodyParser = require('body-parser')
 const uuid = require('uuid/v4')
 const shortid = require('shortid')
 const passwordHash = require('password-hash')
+const numeral = require('numeral')
 
 const db = new Database('diamond.sqlite3', {
   memory: false,
@@ -53,20 +54,16 @@ var makeTransaction = function (sender, recipient, amount, memo = '') {
 
   try {
     asTransaction(function () {
-      if (sender !== config.source.id) {
-        db.prepare('UPDATE balances SET balance = balance - $amount WHERE user_id = $sender')
+      db.prepare('UPDATE users SET balance = balance - $amount WHERE user_id = $sender')
           .run({ sender, amount })
-      }
-      if (recipient !== config.void.id) {
-        db.prepare('UPDATE balances SET balance = balance + $amount WHERE user_id = $recipient')
+      db.prepare('UPDATE users SET balance = balance + $amount WHERE user_id = $recipient')
           .run({ recipient, amount })
-      }
       db.prepare(`INSERT INTO transactions (sender, recipient, amount, memo, timestamp)
         VALUES ($sender, $recipient, $amount, $memo, datetime("now"))`)
         .run({ sender, recipient, amount, memo })
     })
   } catch (e) {
-    throw new Error('Transaction failed')
+    throw new Error('Insufficient funds')
   }
 }
 
@@ -78,25 +75,36 @@ router.route('/transactions')
           FROM transactions ORDER BY transaction_id DESC LIMIT ?`).all(req.query.limit))
     } else {
       return res.json(
-        db.prepare('SELECT transaction_id, sender, recipient, amount, memo, timestamp FROM transactions').all())
+        db.prepare(`SELECT transaction_id, sender, recipient, amount, memo, timestamp 
+          FROM transactions ORDER BY transaction_id DESC`).all())
     }
   })
   .post((req, res) => {
     var data = db.prepare(`SELECT user_id, token FROM tokens WHERE token = ?`).get(req.body.token)
 
     if (data && data.token === req.body.token) {
-      var sender = data.user_id
-      var amount = parseInt(req.body.amount)
+      var amount = Math.floor(numeral(req.body.amount).value())
       var memo = req.body.memo
-      var recipient = db.prepare('SELECT user_id FROM users WHERE user_id = ?').get(req.body.recipient)
+      var recipient = db.prepare('SELECT user_id, limit_acceptance, accepting_from FROM users WHERE user_id = ?')
+        .get(req.body.recipient)
       if (!recipient) { return res.json({ error: 'Recipient does not exist' }) }
-      recipient = recipient.user_id
+
+      var sender = db.prepare('SELECT user_id, tax_exempt FROM users WHERE user_id = ?').get(data.user_id)
+      if (!sender) { return res.json({ error: 'Sender does not exist' }) }
+
+      if (recipient.limit_acceptance) {
+        var acceptingFrom = JSON.parse(recipient.accepting_from)
+        if (acceptingFrom.indexOf(sender.user_id) < 0) {
+          return res.json({ error: 'Recipient rejected transaction' })
+        }
+      }
 
       try {
         asTransaction(function () {
-          makeTransaction(sender, recipient, amount, memo)
-          if (sender !== config.tax.id) {
-            makeTransaction(sender, config.tax.id, calculateTax(amount), `${parseInt(config.tax.rate * 100)}% tax`)
+          makeTransaction(sender.user_id, recipient.user_id, amount, memo)
+          if (!sender.tax_exempt) {
+            makeTransaction(sender.user_id, config.tax.id, calculateTax(amount),
+              `${parseInt(config.tax.rate * 100)}% tax`)
           }
         })
         res.json({ success: true })
@@ -148,8 +156,8 @@ var createUser = function (username, password) {
 
   try {
     db.transaction([
-      'INSERT INTO users (user_id, username, username_lower, password) VALUES ($userId, $username, $usernameLower, $password)',
-      'INSERT INTO balances (user_id) VALUES ($userId)'
+      `INSERT INTO users (user_id, username, username_lower, password) 
+        VALUES ($userId, $username, $usernameLower, $password)`
     ]).run({
       userId,
       username,
@@ -166,12 +174,13 @@ var createUser = function (username, password) {
 router.route('/users')
   .get((req, res) => {
     if (req.query.username) {
-      return res.json(db.prepare(`SELECT users.user_id, username, balance FROM users, balances 
-        WHERE users.user_id = balances.user_id AND username_lower = ?`)
+      return res.json(db.prepare(`SELECT user_id, username, balance 
+        FROM users 
+        WHERE username_lower = ?`)
         .get(req.query.username.trim().toLowerCase()))
     } else {
-      return res.json(db.prepare(`SELECT users.user_id, username, balance FROM users, balances
-        WHERE users.user_id = balances.user_id`).all())
+      return res.json(db.prepare(`SELECT user_id, username, balance 
+        FROM users ORDER BY balance DESC`).all())
     }
   })
   .post((req, res) => {
@@ -185,8 +194,9 @@ router.route('/users')
 
 router.route('/users/:user_id')
   .get((req, res) => {
-    return res.json(db.prepare(`SELECT users.user_id, username, balance FROM users, balances 
-      WHERE users.user_id = balances.user_id AND users.user_id = ?`).get(req.params.user_id))
+    return res.json(db.prepare(`SELECT user_id, username, balance 
+      FROM users 
+      WHERE user_id = ?`).get(req.params.user_id))
   })
 
 router.route('/tokens')
@@ -206,7 +216,7 @@ router.route('/tokens')
       var token = uuid()
       try {
         db.prepare('INSERT INTO tokens VALUES (?, ?, datetime("now"))').run(userId, token)
-        return res.json({ success: true, token: token })
+        return res.json({ token: token })
       } catch (e) {
         return res.json({ error: 'Could not save session' })
       }
@@ -252,8 +262,16 @@ var createTables = [
     amount INTEGER, 
     memo TEXT, 
     timestamp DATETIME)`,
-  'CREATE TABLE IF NOT EXISTS balances (user_id TEXT, balance INTEGER CHECK(balance >= 0) DEFAULT 0)',
-  'CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY UNIQUE, username TEXT, username_lower TEXT UNIQUE, password TEXT)',
+  `CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY UNIQUE, 
+    username TEXT,
+    username_lower TEXT UNIQUE,
+    balance INTEGER CHECK(balance >= 0 OR negative) DEFAULT 0,
+    negative INTEGER DEFAULT 0,
+    tax_exempt INTEGER DEFAULT 0,
+    limit_acceptance INTEGER DEFAULT 0,
+    accepting_from TEXT DEFAULT '[]',
+    password TEXT)`,
   'CREATE TABLE IF NOT EXISTS tokens (user_id TEXT, token TEXT, created DATETIME)'
 ]
 createTables.map(statement => db.prepare(statement).run())
@@ -269,6 +287,11 @@ var ensureUser = function (username, password) {
 config.tax.id = ensureUser(config.tax.username, config.tax.password)
 config.admin.id = ensureUser(config.admin.username, config.admin.password)
 config.source.id = ensureUser(config.source.username, config.source.password)
-config.void.id = ensureUser(config.void.username, config.void.password)
+db.prepare(`UPDATE users 
+  SET negative = 1, tax_exempt = 1, limit_acceptance = 1, accepting_from = ?
+  WHERE user_id = ?`)
+  .run(JSON.stringify([config.admin.id]), config.source.id)
+db.prepare('UPDATE users SET tax_exempt = 1 WHERE user_id = ?').run(config.tax.id)
+db.prepare('UPDATE users SET tax_exempt = 1 WHERE user_id = ?').run(config.admin.id)
 
 server.listen(config.port, () => console.log(`Started on *:${config.port}`))
