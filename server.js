@@ -44,7 +44,7 @@ var asTransaction = function (func) {
   }
 }
 
-var makeTransaction = function (sender, recipient, amount, memo) {
+var makeTransaction = function (sender, recipient, amount, memo = '') {
   if (sender === recipient) { throw new Error('Cannot send money to yourself') }
   if (amount < 0) { throw new Error('Cannot send negative amount') }
   if (amount === 0) { return }
@@ -67,7 +67,14 @@ var makeTransaction = function (sender, recipient, amount, memo) {
 
 router.route('/transactions')
   .get((req, res) => {
-    return res.json(db.prepare('SELECT * FROM transactions').all())
+    if (req.query.limit) {
+      return res.json(
+        db.prepare(`SELECT transaction_id, sender, recipient, amount, memo, timestamp 
+          FROM transactions ORDER BY transaction_id DESC LIMIT ?`).all(req.query.limit))
+    } else {
+      return res.json(
+        db.prepare('SELECT transaction_id, sender, recipient, amount, memo, timestamp FROM transactions').all())
+    }
   })
   .post((req, res) => {
     var data = db.prepare(`SELECT user_id, token FROM tokens WHERE token = ?`).get(req.body.token)
@@ -77,7 +84,7 @@ router.route('/transactions')
       var amount = parseInt(req.body.amount)
       var memo = req.body.memo
       var recipient = db.prepare('SELECT user_id FROM users WHERE user_id = ?').get(req.body.recipient)
-      if (!recipient) { return res.json({ success: false, message: 'Recipient does not exist' }) }
+      if (!recipient) { return res.json({ error: 'Recipient does not exist' }) }
       recipient = recipient.user_id
 
       try {
@@ -89,18 +96,29 @@ router.route('/transactions')
         })
         res.json({ success: true })
       } catch (e) {
-        res.json({ success: false, message: e.message })
+        res.json({ error: e.message })
       }
     } else {
-      return res.json({ success: false, message: 'Invalid token' })
+      return res.json({ error: 'Invalid token' })
     }
   })
 
 router.route('/transactions/:user_id')
   .get((req, res) => {
-    return res.json(db.prepare('SELECT * FROM transactions WHERE sender = $userId OR recipient = $userId').all({
-      userId: req.params.user_id
-    }))
+    if (req.query.limit) {
+      return res.json(
+        db.prepare(`SELECT transaction_id, sender, recipient, amount, memo, timestamp 
+          FROM transactions 
+          WHERE sender = $userId OR recipient = $userId
+          ORDER BY transaction_id DESC LIMIT $limit`).all({
+            userId: req.params.user_id,
+            limit: req.query.limit
+          }))
+    } else {
+      return res.json(db.prepare('SELECT * FROM transactions WHERE sender = $userId OR recipient = $userId').all({
+        userId: req.params.user_id
+      }))
+    }
   })
 
 var validateUsername = function (username) {
@@ -156,25 +174,25 @@ router.route('/users')
       createUser(req.body.username, req.body.password)
       return res.json({ success: true })
     } catch (e) {
-      return res.json({ success: false, message: e.message })
+      return res.json({ error: e.message })
     }
   })
 
 router.route('/users/:user_id')
   .get((req, res) => {
-    return res.json(db.prepare(`SELECT users.user_id, username FROM users, balances 
-      WHERE user.user_id = balances.user_id AND user_id = ?`).get(req.params.user_id))
+    return res.json(db.prepare(`SELECT users.user_id, username, balance FROM users, balances 
+      WHERE users.user_id = balances.user_id AND users.user_id = ?`).get(req.params.user_id))
   })
 
 router.route('/tokens')
   .post((req, res) => {
-    if (!req.body.username) { return res.json({ success: false, message: 'No username provided' }) }
-    if (!req.body.password) { return res.json({ success: false, message: 'No password provided' }) }
+    if (!req.body.username) { return res.json({ error: 'No username provided' }) }
+    if (!req.body.password) { return res.json({ error: 'No password provided' }) }
 
     var username = req.body.username.trim()
     var usernameLower = username.toLowerCase()
     var data = db.prepare('SELECT user_id, password FROM users WHERE username_lower = ?').get(usernameLower)
-    if (!data) { return res.json({ success: false, message: 'Incorrect username or password' }) }
+    if (!data) { return res.json({ error: 'Incorrect username or password' }) }
     var userId = data.user_id
     var hashedPassword = data.password
 
@@ -185,20 +203,28 @@ router.route('/tokens')
         db.prepare('INSERT INTO tokens VALUES (?, ?, datetime("now"))').run(userId, token)
         return res.json({ success: true, token: token })
       } catch (e) {
-        return res.json({ success: false, message: 'Could not save session' })
+        return res.json({ error: 'Could not save session' })
       }
     } else {
-      return res.json({ success: false, message: 'Incorrect username or password' })
+      return res.json({ error: 'Incorrect username or password' })
     }
   })
 
 router.route('/tokens/:token')
+  .get((req, res) => {
+    var token = db.prepare('SELECT user_id, token, created FROM tokens WHERE token = ?').get(req.params.token)
+    if (token) {
+      return res.json(token)
+    } else {
+      return res.json({ error: 'Invalid token' })
+    }
+  })
   .delete((req, res) => {
     try {
       db.prepare('DELETE FROM tokens WHERE token = ?').run(req.params.token)
       return res.json({ success: true })
     } catch (e) {
-      return res.json({ success: false, message: 'Could not delete token' })
+      return res.json({ error: 'Could not delete token' })
     }
   })
 
@@ -209,7 +235,7 @@ router.route('/tax/calculate/:amount')
       var tax = calculateTax(amount)
       return res.json({ success: true, tax: tax })
     } catch (e) {
-      return res.json({ success: false, message: 'Not a valid amount (must be an integer)' })
+      return res.json({ error: 'Not a valid amount (must be an integer)' })
     }
   })
 
