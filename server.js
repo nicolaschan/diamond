@@ -53,12 +53,17 @@ var makeTransaction = function (sender, recipient, amount, memo = '') {
 
   try {
     asTransaction(function () {
-      [
-        'UPDATE balances SET balance = balance - $amount WHERE user_id = $sender',
-        'UPDATE balances SET balance = balance + $amount WHERE user_id = $recipient',
-        `INSERT INTO transactions (sender, recipient, amount, memo, timestamp)
-        VALUES ($sender, $recipient, $amount, $memo, datetime("now"))`
-      ].map(statement => db.prepare(statement).run({sender, recipient, amount, memo}))
+      if (sender !== config.source.id) {
+        db.prepare('UPDATE balances SET balance = balance - $amount WHERE user_id = $sender')
+          .run({ sender, amount })
+      }
+      if (recipient !== config.void.id) {
+        db.prepare('UPDATE balances SET balance = balance + $amount WHERE user_id = $recipient')
+          .run({ recipient, amount })
+      }
+      db.prepare(`INSERT INTO transactions (sender, recipient, amount, memo, timestamp)
+        VALUES ($sender, $recipient, $amount, $memo, datetime("now"))`)
+        .run({ sender, recipient, amount, memo })
     })
   } catch (e) {
     throw new Error('Transaction failed')
@@ -263,5 +268,7 @@ var ensureUser = function (username, password) {
 }
 config.tax.id = ensureUser(config.tax.username, config.tax.password)
 config.admin.id = ensureUser(config.admin.username, config.admin.password)
+config.source.id = ensureUser(config.source.username, config.source.password)
+config.void.id = ensureUser(config.void.username, config.void.password)
 
 server.listen(config.port, () => console.log(`Started on *:${config.port}`))

@@ -8,5 +8,13 @@
   "admin": {
     "username": "admin",
     "password": "pass"
+  },
+  "source": {
+    "username": "source",
+    "password": "pass"
+  },
+  "void": {
+    "username": "void",
+    "password": "pass"
   }
 }
