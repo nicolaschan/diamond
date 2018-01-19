@@ -1,5 +1,6 @@
 const config = require('./config.json')
 const Database = require('better-sqlite3')
+const path = require('path')
 const express = require('express')
 const http = require('http')
 const bodyParser = require('body-parser')
@@ -23,6 +24,10 @@ var calculateTax = function (amount) {
 
 app.use(bodyParser.urlencoded({ extended: true }))
 app.use(bodyParser.json())
+
+app.use('/bin', express.static('bin'))
+app.use('/bootstrap', express.static(path.join('node_modules', 'bootstrap', 'dist')))
+app.use('/jquery', express.static(path.join('node_modules', 'jquery', 'dist')))
 
 const router = express.Router()
 app.use('/api', router)
@@ -253,6 +258,10 @@ router.route('/tax/calculate/:amount')
       return res.json({ error: 'Not a valid amount (must be an integer)' })
     }
   })
+
+app.get('/*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'))
+})
 
 var createTables = [
   `CREATE TABLE IF NOT EXISTS transactions (
