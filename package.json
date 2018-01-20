@@ -27,6 +27,7 @@
     "datatables.net-bs": "^1.10.16",
     "express": "^4.16.2",
     "jquery": "^3.2.1",
+    "js-cookie": "^2.2.0",
     "mithril": "^1.1.6",
     "numeral": "^2.0.6",
     "password-hash": "^1.2.2",

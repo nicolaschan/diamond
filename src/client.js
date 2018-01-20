@@ -1,5 +1,6 @@
 /* global $ */
 const m = require('mithril')
+const Cookies = require('js-cookie')
 const root = document.body
 
 const Data = {
@@ -9,10 +10,10 @@ const Data = {
     username: '',
     balance: 0,
     fetch: function () {
-      if (Data.user.token) {
+      if (Cookies.get('token')) {
         return m.request({
           method: 'GET',
-          url: `/api/tokens/${Data.user.token}`
+          url: `/api/tokens/${Cookies.get('token')}`
         })
         .then(function (token) {
           Data.user.userId = token.user_id
@@ -26,7 +27,7 @@ const Data = {
             Data.user.username = user.username
             Data.user.balance = user.balance
           } else {
-            Data.user.token = ''
+            Cookies.remove('token')
           }
         })
       }
@@ -61,7 +62,7 @@ const CurrentUser = {
   oninit: Data.user.fetch,
   view: function () {
     return m('ul.nav.navbar-nav.navbar-right',
-      (Data.user.token) ? [
+      (Cookies.get('token')) ? [
         m('li', m('p.navbar-text',
           `${Data.user.username} / ${Data.user.balance.toLocaleString()}`)),
         m('li', m('a[href=#]', {
@@ -293,7 +294,7 @@ const Actions = {
       method: 'POST',
       url: '/api/transactions',
       data: {
-        token: Data.user.token,
+        token: Cookies.get('token'),
         recipient: SendFormModel.recipient,
         amount: SendFormModel.amount,
         memo: SendFormModel.memo
@@ -303,11 +304,11 @@ const Actions = {
   signOut: function () {
     return m.request({
       method: 'DELETE',
-      url: `/api/tokens/${Data.user.token}`
+      url: `/api/tokens/${Cookies.get('token')}`
     })
     .then(function (result) {
       if (result.success) {
-        Data.user.token = ''
+        Cookies.remove('token')
         m.route.set('/signin')
       }
     })
@@ -323,7 +324,7 @@ const Actions = {
     })
     .then(function (result) {
       if (result.token) {
-        Data.user.token = result.token
+        Cookies.set('token', result.token)
         SignInModel.clear()
         m.route.set('/users')
       }
@@ -393,8 +394,8 @@ const SendForm = {
         })
       ]),
       m('button.btn.btn-default[type=submit]', {
-        disabled: !Data.user.token
-      }, (Data.user.token) ? 'Send' : 'You must be signed in')
+        disabled: !Cookies.get('token')
+      }, (Cookies.get('token')) ? 'Send' : 'You must be signed in')
     ])
   },
   oncreate: function () {
