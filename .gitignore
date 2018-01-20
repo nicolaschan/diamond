@@ -1,5 +1,6 @@
 # database
 diamond.sqlite3
+bin/*
 
 # Logs
 logs

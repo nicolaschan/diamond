@@ -227,12 +227,13 @@ const TransactionsList = {
           m('th', 'Sender'),
           m('th', 'Recipient'),
           m('th', 'Amount'),
-          m('th', 'Memo')])),
+          m('th', 'Memo'),
+          m('th', 'Timestamp')])),
     ])
   },
   oncreate: function () {
     $('#transactions').dataTable({
-      order: [4, 'desc'],
+      order: [5, 'desc'],
       ajax: function (data, callback, settings) {
         Promise.all([
           m.request({
@@ -258,7 +259,8 @@ const TransactionsList = {
               getUsername(t.sender),
               getUsername(t.recipient),
               t.amount.toLocaleString(),
-              t.memo
+              t.memo,
+              t.timestamp
             ])
           })
         })
@@ -286,6 +288,18 @@ const Index = {
 }
 
 const Actions = {
+  send: function () {
+    return m.request({
+      method: 'POST',
+      url: '/api/transactions',
+      data: {
+        token: Data.user.token,
+        recipient: SendFormModel.recipient,
+        amount: SendFormModel.amount,
+        memo: SendFormModel.memo
+      }
+    })
+  },
   signOut: function () {
     return m.request({
       method: 'DELETE',
@@ -354,7 +368,12 @@ const SignIn = {
 const SendForm = {
   oninit: Data.users.fetch,
   view: function () {
-    return m('form', [
+    return m('form', {
+      onsubmit: function (e) {
+        e.preventDefault()
+        Actions.send()
+      }
+    }, [
       m('.form-group', [
         m('label[for=recipient]', 'Recipient'),
         m('select#recipient')
@@ -372,7 +391,10 @@ const SendForm = {
           value: SendFormModel.memo,
           oninput: m.withAttr('value', SendFormModel.setMemo)
         })
-      ])
+      ]),
+      m('button.btn.btn-default[type=submit]', {
+        disabled: !Data.user.token
+      }, (Data.user.token) ? 'Send' : 'You must be signed in')
     ])
   },
   oncreate: function () {
