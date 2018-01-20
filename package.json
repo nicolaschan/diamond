@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build": "webpack",
+    "build:watch": "npm run build -- -w",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -20,11 +22,19 @@
     "better-sqlite3": "^4.0.3",
     "bluebird": "^3.5.1",
     "body-parser": "^1.18.2",
+    "bootstrap": "^3.3.7",
+    "datatables.net": "^1.10.16",
+    "datatables.net-bs": "^1.10.16",
     "express": "^4.16.2",
+    "jquery": "^3.2.1",
+    "mithril": "^1.1.6",
     "numeral": "^2.0.6",
     "password-hash": "^1.2.2",
+    "selectize": "^0.12.4",
     "shortid": "^2.2.8",
     "sqlite3": "^3.1.13",
-    "uuid": "^3.1.0"
+    "standard": "^10.0.3",
+    "uuid": "^3.1.0",
+    "webpack": "^3.10.0"
   }
 }
